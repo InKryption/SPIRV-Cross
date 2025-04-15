@@ -26,3 +26,6 @@
 
 !CMakeLists.txt
 !LICENSES/*.txt
+
+/.zig-cache/
+/zig-out/
