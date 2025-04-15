@@ -1,0 +1,19 @@
+.{
+    .name = .spirv_cross,
+    .version = "1.4.309",
+    .fingerprint = 0x7ea1d83fc4dfc6e, // Changing this has security and trust implications.
+    .minimum_zig_version = "0.15.0-dev.253+45a54ef4f",
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+
+        "src/",
+        "include/",
+
+        "cmake/",
+
+        "LICENSE",
+        "LICENSES/",
+    },
+    .dependencies = .{},
+}
