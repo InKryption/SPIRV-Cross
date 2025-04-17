@@ -75,7 +75,6 @@ pub const Options = struct {
 const HAVE_SPIRV_CROSS_GIT_VERSION = "HAVE_SPIRV_CROSS_GIT_VERSION";
 pub fn build(b: *Build) void {
     const opts: Options = .fromBuild(b);
-    const source_date_epoch: []const u8 = spirvSourceDateEpoch(b);
     const wanted_feature_apis: LibraryName.Set = .init(.{
         .glsl = opts.want_glsl,
         .cpp = opts.want_cpp,
@@ -109,12 +108,33 @@ pub fn build(b: *Build) void {
         static_step.dependOn(util_step);
     }
 
-    const gitversion_config_h = b.addConfigHeader(.{
-        .style = .{ .cmake = b.path("cmake/gitversion.in.h") },
-        .include_path = "gitversion.h",
-    }, .{});
-    gitversion_config_h.addValue("spirv-cross-build-version", []const u8, b.fmt("{}", .{build_version}));
-    gitversion_config_h.addValue("spirv-cross-timestamp", []const u8, source_date_epoch);
+    const gitversion_h: Build.LazyPath = gen: {
+        const gen_gitversion_h_exe = b.addExecutable(.{
+            .name = "gen-gitversion-h",
+            .root_module = b.createModule(.{
+                .root_source_file = b.path("scripts/gen_gitversion_h.zig"), // NOTE: see the script for explanation
+                .target = b.resolveTargetQuery(.{}),
+                .optimize = .ReleaseSafe,
+            }),
+        });
+
+        const gen_gitversion_h_run = b.addRunArtifact(gen_gitversion_h_exe);
+        const gitversion_h = gen_gitversion_h_run.addOutputFileArg("gitversion.h");
+        gen_gitversion_h_run.addFileArg(b.path("cmake/gitversion.in.h"));
+        gen_gitversion_h_run.addArg(b.fmt("{}", .{build_version}));
+
+        // dependencies to re-run gen-gitversion-h for
+        const srcdir = b.path("src");
+        for (all_sources.values) |source_list| {
+            for (source_list) |file| {
+                const file_lp = srcdir.path(b, file);
+                gen_gitversion_h_run.addFileInput(file_lp);
+            }
+        }
+        gen_gitversion_h_run.addFileInput(b.path("build.zig"));
+
+        break :gen gitversion_h;
+    };
 
     const cxx_is_clang = true;
     const cxx_is_gnu = false;
@@ -293,7 +313,7 @@ pub fn build(b: *Build) void {
         .defines = spirv_compiler_defines,
         .files = all_sources.get(.c),
         .options = spirv_compiler_options,
-        .gitversion = gitversion_config_h,
+        .gitversion = gitversion_h,
     });
     {
         // GLSL can itself be disabled, but if any other support library
@@ -328,7 +348,7 @@ pub fn build(b: *Build) void {
         .defines = spirv_compiler_defines,
         .files = comptime all_sources.get(.core) ++ all_sources.get(.c),
         .options = null, // combine the overall options down below
-        .gitversion = gitversion_config_h,
+        .gitversion = gitversion_h,
     });
     c_shared_lib.root_module.addCMacro("SPVC_EXPORT_SYMBOLS", "");
 
@@ -416,7 +436,7 @@ pub fn build(b: *Build) void {
             cli_exe.root_module.addCMacro(def_name, def_val);
         }
         cli_exe.root_module.addCMacro(HAVE_SPIRV_CROSS_GIT_VERSION, "");
-        cli_exe.addConfigHeader(gitversion_config_h);
+        cli_exe.addIncludePath(gitversion_h.dirname());
 
         // if (SPIRV_CROSS_ENABLE_TESTS)
         //     # Set up tests, using only the simplest modes of the test_shaders
@@ -689,7 +709,7 @@ fn spirvCrossAddLibrary(
         /// Otherwise, pass the full set of options to compile the files
         /// with.
         options: ?[]const []const u8,
-        gitversion: ?*Build.Step.ConfigHeader,
+        gitversion: ?Build.LazyPath,
     },
 ) *Build.Step.Compile {
     const artifact = b.addLibrary(.{
@@ -726,8 +746,8 @@ fn spirvCrossAddLibrary(
     const header_kind: HeaderKind = if (params.linkage == .static) .all_headers else .c_headers;
     installSrcHeaders(b, artifact, header_kind, params.files, "spirv_cross");
 
-    if (params.gitversion) |gitversion_config_h| {
-        artifact.addConfigHeader(gitversion_config_h);
+    if (params.gitversion) |gitversion| {
+        artifact.addIncludePath(gitversion.dirname());
         artifact.root_module.addCMacro(HAVE_SPIRV_CROSS_GIT_VERSION, "");
     }
 
@@ -818,52 +838,4 @@ fn extractHeadersOrSources(
     }
 
     return out_abs.toOwnedSlice(b.graph.arena) catch unreachable;
-}
-
-/// SEE: https://cmake.org/cmake/help/latest/command/string.html#timestamp
-/// SEE: https://reproducible-builds.org/specs/source-date-epoch
-fn spirvSourceDateEpoch(b: *Build) []const u8 {
-    const SOURCE_DATE_EPOCH = "SOURCE_DATE_EPOCH";
-    const desc =
-        "Environment variable or option to override the source build timestamp. " ++
-        "Must be a raw UTC unix timestamp. ";
-
-    const option_value = b.option([]const u8, SOURCE_DATE_EPOCH, desc);
-    const env_value = b.graph.env_map.get(SOURCE_DATE_EPOCH);
-    if (option_value orelse env_value) |value_str| {
-        if (value_str.len == 0) return "";
-        const value = std.fmt.parseInt(u64, value_str, 10) catch unreachable; // SOURCE_DATE_EPOCH must be a base 10 integer
-        return epochSecondsStr(b, .{ .secs = value });
-    }
-
-    var latest_mtime: u64 = 0;
-    for (@as([]const []const u8, &build_manifest.paths)) |path| {
-        const stat = b.build_root.handle.statFile(path) catch |err| switch (err) {
-            error.IsDir => blk: {
-                var dir = b.build_root.handle.openDir(path, .{}) catch unreachable;
-                defer dir.close();
-                break :blk dir.stat() catch unreachable;
-            },
-            else => unreachable,
-        };
-        const mtime: u64 = @intCast(@divTrunc(stat.mtime, std.time.ns_per_s));
-        latest_mtime = @max(latest_mtime, mtime);
-    }
-
-    return epochSecondsStr(b, .{ .secs = latest_mtime });
-}
-
-fn epochSecondsStr(b: *Build, es: std.time.epoch.EpochSeconds) []const u8 {
-    const year_day = es.getEpochDay().calculateYearDay();
-    const month_day = year_day.calculateMonthDay();
-    const day_seconds = es.getDaySeconds();
-    return b.fmt("{[y]}-{[m]:0>2}-{[d]:0>2}T{[h]:0>2}:{[min]:0>2}:{[s]:0>2}Z", .{
-        .y = year_day.year,
-        .m = month_day.month.numeric(),
-        .d = month_day.day_index,
-
-        .h = day_seconds.getHoursIntoDay(),
-        .min = day_seconds.getMinutesIntoHour(),
-        .s = day_seconds.getSecondsIntoMinute(),
-    });
 }
