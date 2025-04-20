@@ -123,6 +123,14 @@ pub fn build(b: *Build) void {
         gen_gitversion_h_run.addFileArg(b.path("cmake/gitversion.in.h"));
         gen_gitversion_h_run.addArg(b.fmt("{}", .{build_version}));
 
+        const SOURCE_DATE_EPOCH = "SOURCE_DATE_EPOCH";
+        if (b.graph.env_map.get(SOURCE_DATE_EPOCH)) |source_date_epoch| {
+            gen_gitversion_h_run.setEnvironmentVariable(
+                SOURCE_DATE_EPOCH,
+                source_date_epoch,
+            );
+        }
+
         // dependencies to re-run gen-gitversion-h for
         const srcdir = b.path("src");
         for (all_sources.values) |source_list| {

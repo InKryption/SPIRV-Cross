@@ -28,7 +28,11 @@ pub fn main() !void {
     const output_path = args[0];
     const template_path = args[1];
     const version_str = args[2];
-    const timestamp_fmt: DateFmt = .{ .epoch = .{ .secs = @intCast(std.time.timestamp()) } };
+    const build_timestamp: DateFmt = .{ .secs = bts: {
+        const sde = try getEnvInt(gpa, "SOURCE_DATE_EPOCH", u64, 10) orelse
+            break :bts @intCast(std.time.timestamp());
+        break :bts sde;
+    } };
 
     const template_src: []u8 = try std.fs.cwd().readFileAlloc(gpa, template_path, 1 << 18);
     defer gpa.free(template_src);
@@ -74,7 +78,7 @@ pub fn main() !void {
                 .@"spirv-cross-build-version",
                 => try output_writer.writeAll(version_str),
                 .@"spirv-cross-timestamp",
-                => try output_writer.print("{}", .{timestamp_fmt}),
+                => try output_writer.print("{}", .{build_timestamp}),
             }
         }
 
@@ -86,7 +90,8 @@ pub fn main() !void {
 }
 
 const DateFmt = struct {
-    epoch: std.time.epoch.EpochSeconds,
+    /// seconds since epoch Jan 1, 1970 at 12:00 AM
+    secs: u64,
 
     pub fn format(
         self: DateFmt,
@@ -97,9 +102,10 @@ const DateFmt = struct {
         _ = fmt_str;
         _ = fmt_options;
 
-        const year_day = self.epoch.getEpochDay().calculateYearDay();
+        const epoch_seconds: std.time.epoch.EpochSeconds = .{ .secs = self.secs };
+        const year_day = epoch_seconds.getEpochDay().calculateYearDay();
         const month_day = year_day.calculateMonthDay();
-        const day_seconds = self.epoch.getDaySeconds();
+        const day_seconds = epoch_seconds.getDaySeconds();
         try writer.print("{[y]}-{[m]:0>2}-{[d]:0>2}T{[h]:0>2}:{[min]:0>2}:{[s]:0>2}Z", .{
             .y = year_day.year,
             .m = month_day.month.numeric(),
@@ -111,3 +117,23 @@ const DateFmt = struct {
         });
     }
 };
+
+/// Wrapper around `parseInt(T, getEnvVarOwned(gpa, key), base)`,
+/// with `EnvironmentVariableNotFound` being handled as null, and
+/// proper deallocation handling.
+fn getEnvInt(
+    gpa: std.mem.Allocator,
+    key: []const u8,
+    comptime T: type,
+    base: u8,
+) (error{InvalidWtf8} || std.mem.Allocator.Error || std.fmt.ParseIntError)!?T {
+    const str = std.process.getEnvVarOwned(gpa, key) catch |err| switch (err) {
+        error.EnvironmentVariableNotFound,
+        => return null,
+        error.OutOfMemory,
+        error.InvalidWtf8,
+        => |e| return e,
+    };
+    defer gpa.free(str);
+    return try std.fmt.parseInt(T, str, base);
+}
