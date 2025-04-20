@@ -72,7 +72,6 @@ pub const Options = struct {
     }
 };
 
-const HAVE_SPIRV_CROSS_GIT_VERSION = "HAVE_SPIRV_CROSS_GIT_VERSION";
 pub fn build(b: *Build) void {
     const opts: Options = .fromBuild(b);
     const wanted_feature_apis: LibraryName.Set = .init(.{
@@ -108,6 +107,13 @@ pub fn build(b: *Build) void {
         static_step.dependOn(util_step);
     }
 
+    const gitversion_h_helper = struct {
+        fn addIncludeTo(mod: *Build.Module, gitversion_h: Build.LazyPath) void {
+            const HAVE_SPIRV_CROSS_GIT_VERSION = "HAVE_SPIRV_CROSS_GIT_VERSION";
+            mod.addIncludePath(gitversion_h.dirname());
+            mod.addCMacro(HAVE_SPIRV_CROSS_GIT_VERSION, "");
+        }
+    };
     const gitversion_h: Build.LazyPath = gen: {
         const gen_gitversion_h_exe = b.addExecutable(.{
             .name = "gen-gitversion-h",
@@ -243,7 +249,6 @@ pub fn build(b: *Build) void {
         .defines = spirv_compiler_defines,
         .files = all_sources.get(.core),
         .options = spirv_compiler_options,
-        .gitversion = null,
     });
 
     const glsl_lib = spirvCrossAddLibrary(b, "spirv-cross-glsl", opts, .{
@@ -252,7 +257,6 @@ pub fn build(b: *Build) void {
         .defines = spirv_compiler_defines,
         .files = all_sources.get(.glsl),
         .options = spirv_compiler_options,
-        .gitversion = null,
     });
     glsl_lib.linkLibrary(core_lib);
     glsl_lib.installLibraryHeaders(core_lib);
@@ -263,7 +267,6 @@ pub fn build(b: *Build) void {
         .defines = spirv_compiler_defines,
         .files = all_sources.get(.cpp),
         .options = spirv_compiler_options,
-        .gitversion = null,
     });
     cpp_lib.linkLibrary(glsl_lib);
     cpp_lib.installLibraryHeaders(glsl_lib);
@@ -274,7 +277,6 @@ pub fn build(b: *Build) void {
         .defines = spirv_compiler_defines,
         .files = all_sources.get(.msl),
         .options = spirv_compiler_options,
-        .gitversion = null,
     });
     msl_lib.linkLibrary(glsl_lib);
     msl_lib.installLibraryHeaders(glsl_lib);
@@ -285,7 +287,6 @@ pub fn build(b: *Build) void {
         .defines = spirv_compiler_defines,
         .files = all_sources.get(.hlsl),
         .options = spirv_compiler_options,
-        .gitversion = null,
     });
     hlsl_lib.linkLibrary(glsl_lib);
     hlsl_lib.installLibraryHeaders(glsl_lib);
@@ -296,7 +297,6 @@ pub fn build(b: *Build) void {
         .defines = spirv_compiler_defines,
         .files = all_sources.get(.reflect),
         .options = spirv_compiler_options,
-        .gitversion = null,
     });
     // NOTE: in the original CMakeLists.txt file, the reflection library doesn't link the glsl library,
     // despite both requiring it through CMake logic, and the `spirv_reflect.cpp` source code making use
@@ -310,7 +310,6 @@ pub fn build(b: *Build) void {
         .defines = spirv_compiler_defines,
         .files = all_sources.get(.util),
         .options = spirv_compiler_options,
-        .gitversion = null,
     });
     util_lib.linkLibrary(core_lib);
 
@@ -321,8 +320,8 @@ pub fn build(b: *Build) void {
         .defines = spirv_compiler_defines,
         .files = all_sources.get(.c),
         .options = spirv_compiler_options,
-        .gitversion = gitversion_h,
     });
+    gitversion_h_helper.addIncludeTo(c_static_lib.root_module, gitversion_h);
     {
         // GLSL can itself be disabled, but if any other support library
         // that needs it is enabled, it needs to become enabled.
@@ -356,8 +355,8 @@ pub fn build(b: *Build) void {
         .defines = spirv_compiler_defines,
         .files = comptime all_sources.get(.core) ++ all_sources.get(.c),
         .options = null, // combine the overall options down below
-        .gitversion = gitversion_h,
     });
+    gitversion_h_helper.addIncludeTo(c_shared_lib.root_module, gitversion_h);
     c_shared_lib.root_module.addCMacro("SPVC_EXPORT_SYMBOLS", "");
 
     // logic details from the original CMakeLists.txt file
@@ -443,8 +442,7 @@ pub fn build(b: *Build) void {
             const def_name, const def_val = def;
             cli_exe.root_module.addCMacro(def_name, def_val);
         }
-        cli_exe.root_module.addCMacro(HAVE_SPIRV_CROSS_GIT_VERSION, "");
-        cli_exe.addIncludePath(gitversion_h.dirname());
+        gitversion_h_helper.addIncludeTo(cli_exe.root_module, gitversion_h);
 
         // if (SPIRV_CROSS_ENABLE_TESTS)
         //     # Set up tests, using only the simplest modes of the test_shaders
@@ -717,7 +715,6 @@ fn spirvCrossAddLibrary(
         /// Otherwise, pass the full set of options to compile the files
         /// with.
         options: ?[]const []const u8,
-        gitversion: ?Build.LazyPath,
     },
 ) *Build.Step.Compile {
     const artifact = b.addLibrary(.{
@@ -753,11 +750,6 @@ fn spirvCrossAddLibrary(
 
     const header_kind: HeaderKind = if (params.linkage == .static) .all_headers else .c_headers;
     installSrcHeaders(b, artifact, header_kind, params.files, "spirv_cross");
-
-    if (params.gitversion) |gitversion| {
-        artifact.addIncludePath(gitversion.dirname());
-        artifact.root_module.addCMacro(HAVE_SPIRV_CROSS_GIT_VERSION, "");
-    }
 
     if (opts.namespace_override) |namespace_override| {
         artifact.root_module.addCMacro(
