@@ -808,34 +808,3 @@ fn getSourceFilesIntoList(
         list.appendAssumeCapacity(file);
     }
 }
-
-fn extractHeadersOrSources(
-    b: *Build,
-    file_get: enum { sources, headers_any, headers_dyn },
-    file_list: []const []const u8,
-) []const []const u8 {
-    var out_abs: std.ArrayListUnmanaged([]const u8) = .empty;
-    out_abs.ensureTotalCapacityPrecise(b.graph.arena, file_list.len) catch unreachable;
-
-    for (file_list) |path| {
-        const ext = std.fs.path.extension(path);
-
-        switch (file_get) {
-            .headers_any => {
-                if (std.mem.eql(u8, ext, ".h") or std.mem.eql(u8, ext, ".hpp")) {
-                    out_abs.appendAssumeCapacity(b.dupe(path));
-                }
-            },
-            .headers_dyn => {
-                if (std.mem.eql(u8, ext, ".h")) {
-                    out_abs.appendAssumeCapacity(b.dupe(path));
-                }
-            },
-            .sources => if (std.mem.eql(u8, ext, ".c") or std.mem.eql(u8, ext, ".cpp")) {
-                out_abs.appendAssumeCapacity(b.dupe(path));
-            },
-        }
-    }
-
-    return out_abs.toOwnedSlice(b.graph.arena) catch unreachable;
-}
