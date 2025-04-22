@@ -101,26 +101,13 @@ pub fn build(b: *Build) void {
         static_step.dependOn(util_step);
     }
 
-    const lib_allowed_feature_apis: LibraryName.Set = .init(.{
-        .glsl = true,
-        .cpp = true,
-        .msl = true,
-        .hlsl = true,
-        .reflect = true,
-    });
-
-    const lib_wanted_feature_apis: LibraryName.Set = .init(.{
+    const lib_wanted_feature_apis: LibraryName.Feature.Set = .init(.{
         .glsl = opts.want_glsl,
         .cpp = opts.want_cpp,
         .msl = opts.want_msl,
         .hlsl = opts.want_hlsl,
         .reflect = opts.want_reflect,
     });
-
-    if (!lib_wanted_feature_apis.subsetOf(lib_allowed_feature_apis)) {
-        const diff = lib_wanted_feature_apis.differenceWith(lib_allowed_feature_apis);
-        std.debug.panic("Unexpected features: {{{}}}", .{enumSetFmt(LibraryName, " ", diff, ", ")});
-    }
 
     // if any of the other APIs are enabled, the glsl API is implied
     const lib_needed_feature_apis =
@@ -135,6 +122,7 @@ pub fn build(b: *Build) void {
             mod.addCMacro(HAVE_SPIRV_CROSS_GIT_VERSION, "");
         }
     };
+
     const gitversion_h: Build.LazyPath = gen: {
         const gen_gitversion_h_exe = b.addExecutable(.{
             .name = "gen-gitversion-h",
@@ -179,8 +167,8 @@ pub fn build(b: *Build) void {
     // CMakeLists.txt:76:1
     const spirv_cross_link_flags = {};
 
-    const spirv_compiler_options: []const []const u8, //
-    const spirv_compiler_defines: []const struct { []const u8, []const u8 } //
+    const cxx_flags: []const []const u8, //
+    const cxx_defines: []const struct { []const u8, []const u8 } //
     = blk: {
         var spirv_compiler_options: std.ArrayListUnmanaged([]const u8) = .empty;
         spirv_compiler_options.ensureTotalCapacity(b.graph.arena, 256) catch unreachable; // just increment this if you need more items
@@ -264,60 +252,30 @@ pub fn build(b: *Build) void {
     //     ${CMAKE_CURRENT_BINARY_DIR}/spirv-cross-c-shared.pc @ONLY)
     // install(FILES ${CMAKE_CURRENT_BINARY_DIR}/spirv-cross-c-shared.pc DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
 
-    const core_lib = spirvCrossAddLibrary(b, .core, opts, .{
-        .linkage = .static,
-        .defines = spirv_compiler_defines,
-        .options = spirv_compiler_options,
-        .lib_files = .initOne(.core),
-    });
+    const core_lib = spvcAddLibraryStatic(b, .core, opts, cxx_flags, cxx_defines);
     installArtifactWithStep(b, opts.skip_install, core_lib, core_step);
 
-    const glsl_lib = spirvCrossAddLibrary(b, .glsl, opts, .{
-        .linkage = .static,
-        .defines = spirv_compiler_defines,
-        .options = spirv_compiler_options,
-        .lib_files = .initOne(.glsl),
-    });
+    const glsl_lib = spvcAddLibraryStatic(b, .glsl, opts, cxx_flags, cxx_defines);
     installArtifactWithStep(b, opts.skip_install, glsl_lib, glsl_step);
     glsl_lib.linkLibrary(core_lib);
     glsl_lib.installLibraryHeaders(core_lib);
 
-    const cpp_lib = spirvCrossAddLibrary(b, .cpp, opts, .{
-        .linkage = .static,
-        .defines = spirv_compiler_defines,
-        .options = spirv_compiler_options,
-        .lib_files = .initOne(.cpp),
-    });
+    const cpp_lib = spvcAddLibraryStatic(b, .cpp, opts, cxx_flags, cxx_defines);
     installArtifactWithStep(b, opts.skip_install, cpp_lib, cpp_step);
     cpp_lib.linkLibrary(glsl_lib);
     cpp_lib.installLibraryHeaders(glsl_lib);
 
-    const msl_lib = spirvCrossAddLibrary(b, .msl, opts, .{
-        .linkage = .static,
-        .defines = spirv_compiler_defines,
-        .options = spirv_compiler_options,
-        .lib_files = .initOne(.msl),
-    });
+    const msl_lib = spvcAddLibraryStatic(b, .msl, opts, cxx_flags, cxx_defines);
     installArtifactWithStep(b, opts.skip_install, msl_lib, msl_step);
     msl_lib.linkLibrary(glsl_lib);
     msl_lib.installLibraryHeaders(glsl_lib);
 
-    const hlsl_lib = spirvCrossAddLibrary(b, .hlsl, opts, .{
-        .linkage = .static,
-        .defines = spirv_compiler_defines,
-        .options = spirv_compiler_options,
-        .lib_files = .initOne(.hlsl),
-    });
+    const hlsl_lib = spvcAddLibraryStatic(b, .hlsl, opts, cxx_flags, cxx_defines);
     installArtifactWithStep(b, opts.skip_install, hlsl_lib, hlsl_step);
     hlsl_lib.linkLibrary(glsl_lib);
     hlsl_lib.installLibraryHeaders(glsl_lib);
 
-    const reflect_lib = spirvCrossAddLibrary(b, .reflect, opts, .{
-        .linkage = .static,
-        .defines = spirv_compiler_defines,
-        .options = spirv_compiler_options,
-        .lib_files = .initOne(.reflect),
-    });
+    const reflect_lib = spvcAddLibraryStatic(b, .reflect, opts, cxx_flags, cxx_defines);
     installArtifactWithStep(b, opts.skip_install, reflect_lib, reflect_step);
     // NOTE: in the original CMakeLists.txt file, the reflection library doesn't link the glsl library,
     // despite both requiring it through CMake logic, and the `spirv_reflect.cpp` source code making use
@@ -325,23 +283,14 @@ pub fn build(b: *Build) void {
     reflect_lib.linkLibrary(glsl_lib);
     reflect_lib.installLibraryHeaders(glsl_lib);
 
-    const util_lib = spirvCrossAddLibrary(b, .util, opts, .{
-        .linkage = .static,
-        .defines = spirv_compiler_defines,
-        .options = spirv_compiler_options,
-        .lib_files = .initOne(.util),
-    });
+    const util_lib = spvcAddLibraryStatic(b, .util, opts, cxx_flags, cxx_defines);
     installArtifactWithStep(b, opts.skip_install, util_lib, util_step);
     util_lib.linkLibrary(core_lib);
 
-    const c_static_lib = spirvCrossAddLibrary(b, .c, opts, .{
-        .linkage = .static,
-        .defines = spirv_compiler_defines,
-        .options = spirv_compiler_options,
-        .lib_files = .initOne(.c),
-    });
+    const c_static_lib = spvcAddLibraryStatic(b, .c, opts, cxx_flags, cxx_defines);
     installArtifactWithStep(b, opts.skip_install, c_static_lib, c_static_step);
     gitversion_h_helper.addIncludeTo(c_static_lib.root_module, gitversion_h);
+    LibraryName.Feature.defineMacroSetFor(lib_needed_feature_apis, c_static_lib.root_module);
     { // link wanted/needed libraries
         var feature_iter = lib_needed_feature_apis.iterator();
         while (feature_iter.next()) |feature| {
@@ -351,32 +300,24 @@ pub fn build(b: *Build) void {
                 .msl => msl_lib,
                 .cpp => cpp_lib,
                 .reflect => reflect_lib,
-                else => unreachable,
             };
-            c_static_lib.root_module.addCMacro(feature.featureMacroName().?, "1");
             c_static_lib.linkLibrary(artifact);
             c_static_lib.installLibraryHeaders(artifact);
         }
     }
 
-    // -- START: spirv-cross-c-shared --
-    const c_shared_lib = spirvCrossAddLibrary(b, .c, opts, .{
-        .linkage = .{ .dynamic = abi_version },
-        .defines = spirv_compiler_defines,
-        .options = spirv_compiler_options,
-        .lib_files = lib_needed_feature_apis.unionWith(.initMany(&.{ .core, .c })),
-    });
+    const c_shared_lib = spvcAddLibrary(b, .c, opts, .{ .dynamic = abi_version });
+    const c_shared_lib_source_groups = LibraryName.Feature
+        .setToLibrarySet(lib_needed_feature_apis)
+        .unionWith(.initMany(&.{ .c, .core }));
     installArtifactWithStep(b, opts.skip_install, c_shared_lib, c_shared_step);
+    installSpvcHeaders(b, c_shared_lib, .c);
+    compileSpvcSources(b, c_shared_lib, c_shared_lib_source_groups, cxx_flags);
+    addCMacros(c_shared_lib.root_module, cxx_defines);
+    spvcDefineNamespaceOverride(c_shared_lib.root_module, opts.namespace_override);
     gitversion_h_helper.addIncludeTo(c_shared_lib.root_module, gitversion_h);
     c_shared_lib.root_module.addCMacro("SPVC_EXPORT_SYMBOLS", "");
-
-    { // define feature macros for libraries included in the compilation
-        var feature_iter = lib_needed_feature_apis.iterator();
-        while (feature_iter.next()) |feature| {
-            c_shared_lib.root_module.addCMacro(feature.featureMacroName().?, "1");
-        }
-    }
-
+    LibraryName.Feature.defineMacroSetFor(lib_needed_feature_apis, c_shared_lib.root_module);
     // logic details from the original CMakeLists.txt file
     if (cxx_is_gnu or cxx_is_clang) {
         // Only export the C API.
@@ -386,50 +327,34 @@ pub fn build(b: *Build) void {
             _ = spirv_cross_link_flags; // TODO: goto def; apply to c_shared_lib.
         }
     }
-    // -- END: spirv-cross-c-shared --
+
+    const cli_exe = b.addExecutable(.{
+        .name = "spirv-cross",
+        .root_module = b.createModule(.{
+            .root_source_file = null,
+            .target = opts.target,
+            .optimize = opts.optimize,
+            // .link_libc = true,
+            // .link_libcpp = true,
+        }),
+    });
+    cli_exe.addCSourceFile(.{
+        .file = b.path("src/main.cpp"),
+        .flags = cxx_flags,
+    });
+    installArtifactWithStep(b, opts.skip_install, cli_exe, cli_step);
+    addCMacros(cli_exe.root_module, cxx_defines);
+    gitversion_h_helper.addIncludeTo(cli_exe.root_module, gitversion_h);
+    _ = spirv_cross_link_flags; // TODO: goto def; apply to main_exe.
+    cli_exe.linkLibrary(core_lib);
+    cli_exe.linkLibrary(glsl_lib);
+    cli_exe.linkLibrary(hlsl_lib);
+    cli_exe.linkLibrary(msl_lib);
+    cli_exe.linkLibrary(cpp_lib);
+    cli_exe.linkLibrary(reflect_lib);
+    cli_exe.linkLibrary(util_lib);
 
     {
-        const cli_exe = b.addExecutable(.{
-            .name = "spirv-cross",
-            .root_module = b.createModule(.{
-                .root_source_file = null,
-                .target = opts.target,
-                .optimize = opts.optimize,
-                // .link_libc = true,
-                // .link_libcpp = true,
-            }),
-        });
-        cli_step.dependOn(&cli_exe.step);
-
-        if (!opts.skip_install) {
-            const cli_install = b.addInstallArtifact(cli_exe, .{});
-            cli_step.dependOn(&cli_install.step);
-
-            const install_step = b.getInstallStep();
-            install_step.dependOn(&cli_install.step);
-        }
-
-        cli_exe.linkLibrary(glsl_lib);
-        cli_exe.linkLibrary(hlsl_lib);
-        cli_exe.linkLibrary(cpp_lib);
-        cli_exe.linkLibrary(reflect_lib);
-        cli_exe.linkLibrary(msl_lib);
-        cli_exe.linkLibrary(util_lib);
-        cli_exe.linkLibrary(core_lib);
-
-        _ = spirv_cross_link_flags; // TODO: goto def; apply to main_exe.
-
-        cli_exe.addCSourceFile(.{
-            .file = b.path("src/main.cpp"),
-            .flags = spirv_compiler_options,
-        });
-
-        for (spirv_compiler_defines) |def| {
-            const def_name, const def_val = def;
-            cli_exe.root_module.addCMacro(def_name, def_val);
-        }
-        gitversion_h_helper.addIncludeTo(cli_exe.root_module, gitversion_h);
-
         // if (SPIRV_CROSS_ENABLE_TESTS)
         //     # Set up tests, using only the simplest modes of the test_shaders
         //     # script.  You have to invoke the script manually to:
@@ -606,48 +531,23 @@ pub fn build(b: *Build) void {
     }
 }
 
-const LibraryName = enum {
-    core,
-    c,
-    glsl,
-    cpp,
-    msl,
-    hlsl,
-    reflect,
-    util,
+fn installArtifactWithStep(
+    b: *Build,
+    skip_install: bool,
+    artifact: *Build.Step.Compile,
+    artifact_step: *Build.Step,
+) void {
+    const install_step = b.getInstallStep();
 
-    pub const Set = std.EnumSet(LibraryName);
+    artifact_step.dependOn(&artifact.step);
+    install_step.dependOn(&artifact.step);
 
-    pub fn featureMacroName(name: LibraryName) ?[]const u8 {
-        return switch (name) {
-            .core => null,
-            .c => null,
-            .util => null,
-            .glsl => "SPIRV_CROSS_C_API_GLSL",
-            .cpp => "SPIRV_CROSS_C_API_CPP",
-            .reflect => "SPIRV_CROSS_C_API_REFLECT",
-            .msl => "SPIRV_CROSS_C_API_MSL",
-            .hlsl => "SPIRV_CROSS_C_API_HLSL",
-        };
+    if (!skip_install) {
+        const install = b.addInstallArtifact(artifact, .{});
+        artifact_step.dependOn(&install.step);
+        install_step.dependOn(&install.step);
     }
-
-    pub fn artifactBaseName(name: LibraryName, linkage: std.builtin.LinkMode) []const u8 {
-        return switch (name) {
-            .core => "spirv-cross-core",
-            .util => "spirv-cross-util",
-            .glsl => "spirv-cross-glsl",
-            .cpp => "spirv-cross-cpp",
-            .reflect => "spirv-cross-reflect",
-            .msl => "spirv-cross-msl",
-            .hlsl => "spirv-cross-hlsl",
-
-            .c => switch (linkage) {
-                .static => "spirv-cross-c",
-                .dynamic => "spirv-cross-c-shared",
-            },
-        };
-    }
-};
+}
 
 /// All headers, C source files, and C++ source files, categorized by library.
 /// Relative to the `src` directory.
@@ -698,98 +598,162 @@ const all_sources: std.EnumArray(LibraryName, []const []const u8) = .init(.{
     },
 });
 
-fn installArtifactWithStep(
-    b: *Build,
-    skip_install: bool,
-    artifact: *Build.Step.Compile,
-    artifact_step: *Build.Step,
-) void {
-    const install_step = b.getInstallStep();
+const LibraryName = enum {
+    core,
+    c,
+    glsl,
+    cpp,
+    msl,
+    hlsl,
+    reflect,
+    util,
 
-    artifact_step.dependOn(&artifact.step);
-    install_step.dependOn(&artifact.step);
+    pub const Set = std.EnumSet(LibraryName);
 
-    if (!skip_install) {
-        const install = b.addInstallArtifact(artifact, .{});
-        artifact_step.dependOn(&install.step);
-        install_step.dependOn(&install.step);
+    pub fn artifactBaseName(name: LibraryName, linkage: std.builtin.LinkMode) []const u8 {
+        return switch (name) {
+            .core => "spirv-cross-core",
+            .util => "spirv-cross-util",
+            .glsl => "spirv-cross-glsl",
+            .cpp => "spirv-cross-cpp",
+            .reflect => "spirv-cross-reflect",
+            .msl => "spirv-cross-msl",
+            .hlsl => "spirv-cross-hlsl",
+
+            .c => switch (linkage) {
+                .static => "spirv-cross-c",
+                .dynamic => "spirv-cross-c-shared",
+            },
+        };
     }
-}
 
-fn spirvCrossAddLibrary(
+    pub fn toFeature(name: LibraryName) ?Feature {
+        return switch (name) {
+            inline //
+            .core,
+            .c,
+            .util,
+            => |tag| blk: {
+                if (!@hasField(Feature, @tagName(tag))) break :blk null;
+                @compileError(@tagName(tag) ++ " tag collides with feature name tag");
+            },
+
+            inline //
+            .glsl,
+            .cpp,
+            .msl,
+            .hlsl,
+            .reflect,
+            => |tag| @field(Feature, @tagName(tag)),
+        };
+    }
+    comptime {
+        _ = &toFeature;
+    }
+
+    pub const Feature = enum {
+        glsl,
+        cpp,
+        msl,
+        hlsl,
+        reflect,
+
+        pub const Set = std.EnumSet(Feature);
+
+        pub fn toLibraryName(feat: Feature) LibraryName {
+            return switch (feat) {
+                inline else => |tag| @field(LibraryName, @tagName(tag)),
+            };
+        }
+
+        pub fn macroName(feat: Feature) []const u8 {
+            return switch (feat) {
+                .glsl => "SPIRV_CROSS_C_API_GLSL",
+                .cpp => "SPIRV_CROSS_C_API_CPP",
+                .msl => "SPIRV_CROSS_C_API_MSL",
+                .hlsl => "SPIRV_CROSS_C_API_HLSL",
+                .reflect => "SPIRV_CROSS_C_API_REFLECT",
+            };
+        }
+
+        pub fn setToLibrarySet(feature_set: Feature.Set) LibraryName.Set {
+            var lib_names: LibraryName.Set = .initEmpty();
+
+            var feature_iter = feature_set.iterator();
+            while (feature_iter.next()) |feature| {
+                lib_names.insert(feature.toLibraryName());
+            }
+
+            return lib_names;
+        }
+
+        pub fn defineMacroSetFor(feature_set: Feature.Set, mod: *Build.Module) void {
+            var feature_iter = feature_set.iterator();
+            while (feature_iter.next()) |feature| {
+                mod.addCMacro(feature.macroName(), "1");
+            }
+        }
+    };
+};
+
+fn spvcAddLibraryStatic(
     b: *Build,
     name: LibraryName,
     opts: Options,
-    params: struct {
-        linkage: union(std.builtin.LinkMode) {
-            static,
-            dynamic: ?std.SemanticVersion,
-        },
-        defines: []const struct { []const u8, []const u8 },
-        options: []const []const u8,
-        /// Set of headers/sources that comprise this library.
-        lib_files: LibraryName.Set,
+    cxx_flags: []const []const u8,
+    cxx_defines: []const struct { []const u8, []const u8 },
+) *Build.Step.Compile {
+    const artifact = spvcAddLibrary(b, name, opts, .static);
+    installSpvcHeaders(b, artifact, name);
+    compileSpvcSources(b, artifact, .initOne(name), cxx_flags);
+    addCMacros(artifact.root_module, cxx_defines);
+    spvcDefineNamespaceOverride(artifact.root_module, opts.namespace_override);
+    return artifact;
+}
+
+fn spvcAddLibrary(
+    b: *Build,
+    name: LibraryName,
+    opts: Options,
+    linkage: union(std.builtin.LinkMode) {
+        static,
+        dynamic: ?std.SemanticVersion,
     },
 ) *Build.Step.Compile {
-    std.debug.assert(params.lib_files.contains(name));
     const artifact = b.addLibrary(.{
-        .linkage = params.linkage,
-        .name = name.artifactBaseName(params.linkage),
+        .linkage = linkage,
+        .name = name.artifactBaseName(linkage),
         .root_module = b.createModule(.{
             .optimize = opts.optimize,
             .target = opts.target,
             .link_libcpp = true,
             .pic = if (opts.force_pic) true else null,
         }),
-        .version = switch (params.linkage) {
+        .version = switch (linkage) {
             .static => null,
             .dynamic => |version| version,
         },
     });
-
     artifact.addIncludePath(b.path("src"));
-
-    for (params.defines) |def| {
-        const def_name, const def_val = def;
-        artifact.root_module.addCMacro(def_name, def_val);
-    }
-
-    if (opts.namespace_override) |namespace_override| {
-        artifact.root_module.addCMacro(
-            "SPIRV_CROSS_NAMESPACE_OVERRIDE",
-            namespace_override,
-        );
-    }
-
-    {
-        var sources: std.ArrayListUnmanaged([]const u8) = .empty;
-
-        var iter = params.lib_files.iterator();
-        while (iter.next()) |lib_name| {
-            installSrcHeaders(b, artifact, lib_name, "spirv_cross");
-            getSourceFilesIntoList(b, &sources, lib_name);
-        }
-
-        artifact.addCSourceFiles(.{
-            .root = b.path("src"),
-            .flags = params.options,
-            .files = sources.items,
-        });
-    }
-
     return artifact;
 }
 
-fn installSrcHeaders(
+/// Install all the .h (and .hpp if `artifact.linkage == .static`) files from the given
+/// library source group into the "spirv_cross" folder alongside the artifact.
+fn installSpvcHeaders(
     b: *Build,
     artifact: *Build.Step.Compile,
     lib_name: LibraryName,
-    dst_rel_path_base: []const u8,
 ) void {
     std.debug.assert(artifact.kind == .lib);
     const linkage = artifact.linkage.?;
 
     const basedir = b.path("src");
+    const dst_rel_path_base = "spirv_cross";
+
+    if (!std.mem.eql(u8, artifact.name, lib_name.artifactBaseName(linkage))) {
+        std.debug.panic("Unrecognized library '{s}', expected '{s}'", .{ artifact.name, lib_name.artifactBaseName(linkage) });
+    }
 
     const files = all_sources.get(lib_name);
     for (files) |file| {
@@ -805,58 +769,60 @@ fn installSrcHeaders(
     }
 }
 
-/// Get all `.c` and `.cpp` into the list.
-fn getSourceFilesIntoList(
+/// Compile all the .c and .cpp files from the given library source group as part of the artifact.
+fn compileSpvcSources(
     b: *Build,
-    list: *std.ArrayListUnmanaged([]const u8),
-    lib_name: LibraryName,
+    artifact: *Build.Step.Compile,
+    lib_names: LibraryName.Set,
+    flags: []const []const u8,
 ) void {
-    const files = all_sources.get(lib_name);
-    list.ensureUnusedCapacity(b.graph.arena, files.len) catch unreachable;
-    for (files) |file| {
-        const ext = std.fs.path.extension(file);
-        const matching_ext = std.mem.eql(u8, ext, ".c") or std.mem.eql(u8, ext, ".cpp");
-        if (!matching_ext) continue;
-        list.appendAssumeCapacity(file);
+    std.debug.assert(artifact.kind == .lib);
+    const linkage = artifact.linkage.?;
+
+    var sources: std.ArrayListUnmanaged([]const u8) = .empty;
+    defer sources.deinit(b.graph.arena);
+
+    var matching_name = false;
+
+    var iter = lib_names.iterator();
+    while (iter.next()) |lib_name| {
+        const files = all_sources.get(lib_name);
+        sources.ensureUnusedCapacity(b.graph.arena, files.len) catch unreachable;
+        for (files) |file| {
+            const ext = std.fs.path.extension(file);
+            const matching_ext =
+                std.mem.eql(u8, ext, ".c") or
+                std.mem.eql(u8, ext, ".cpp");
+            if (!matching_ext) continue;
+            sources.appendAssumeCapacity(file);
+        }
+
+        matching_name = matching_name or std.mem.eql(u8, artifact.name, lib_name.artifactBaseName(linkage));
+    }
+
+    artifact.addCSourceFiles(.{
+        .root = b.path("src"),
+        .files = sources.items,
+        .flags = flags,
+    });
+}
+
+fn addCMacros(
+    mod: *Build.Module,
+    macros: []const struct { []const u8, []const u8 },
+) void {
+    for (macros) |def| {
+        const def_name, const def_val = def;
+        mod.addCMacro(def_name, def_val);
     }
 }
 
-fn enumSetFmt(
-    comptime E: type,
-    surround: []const u8,
-    set: std.EnumSet(E),
-    sep: []const u8,
-) EnumSetFmt(E) {
-    return .{
-        .surround = surround,
-        .sep = sep,
-        .set = set,
-    };
-}
-
-fn EnumSetFmt(comptime E: type) type {
-    return struct {
-        set: std.EnumSet(E),
-        surround: []const u8,
-        sep: []const u8,
-        const Self = @This();
-
-        pub fn format(
-            self: Self,
-            comptime fmt_str: []const u8,
-            fmt_options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) @TypeOf(writer).Error!void {
-            _ = fmt_str;
-            _ = fmt_options;
-            var i: @typeInfo(E).@"enum".tag_type = 0;
-            var iter = self.set.iterator();
-            while (iter.next()) |value| : (i +|= 1) {
-                if (i == 0) try writer.writeAll(self.surround);
-                if (i != 0) try writer.writeAll(self.sep);
-                try writer.writeAll(@tagName(value));
-            }
-            if (i != 0) try writer.writeAll(self.surround);
-        }
-    };
+fn spvcDefineNamespaceOverride(
+    mod: *Build.Module,
+    maybe_namespace_override: ?[]const u8,
+) void {
+    if (maybe_namespace_override) |namespace_override| mod.addCMacro(
+        "SPIRV_CROSS_NAMESPACE_OVERRIDE",
+        namespace_override,
+    );
 }
