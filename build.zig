@@ -54,7 +54,7 @@ pub const Options = struct {
             .want_reflect = b.option(bool, "want_reflect", "Enable JSON reflection target support for the shared library.") orelse want_all_features,
 
             .exceptions_to_assertions = b.option(bool, "exceptions_to_assertions", "Instead of throwing exceptions assert") orelse false,
-            .enable_tests = b.option(bool, "enable_tests", "Enable SPIRV-Cross tests.") orelse true,
+            .enable_tests = b.option(bool, "enable_tests", "Enable SPIRV-Cross tests.") orelse false,
 
             .sanitize_address = b.option(bool, "sanitize_address", "Sanitize address") orelse false,
             .sanitize_memory = b.option(bool, "sanitize_memory", "Sanitize memory") orelse false,
@@ -354,179 +354,188 @@ pub fn build(b: *Build) void {
     cli_exe.linkLibrary(reflect_lib);
     cli_exe.linkLibrary(util_lib);
 
-    {
-        // if (SPIRV_CROSS_ENABLE_TESTS)
-        //     # Set up tests, using only the simplest modes of the test_shaders
-        //     # script.  You have to invoke the script manually to:
-        //     #  - Update the reference files
-        //     #  - Get cycle counts from malisc
-        //     #  - Keep failing outputs
-        //     if (${CMAKE_VERSION} VERSION_GREATER "3.12")
-        //         find_package(Python3)
-        //         if (${PYTHON3_FOUND})
-        //             set(PYTHONINTERP_FOUND ON)
-        //             set(PYTHON_VERSION_MAJOR 3)
-        //             set(PYTHON_EXECUTABLE ${Python3_EXECUTABLE})
-        //         else()
-        //             set(PYTHONINTERP_FOUND OFF)
-        //         endif()
+    if (opts.enable_tests) {
+        const maybe_glslang_dep = b.lazyDependency("glslang", .{});
+        const maybe_spirv_tools_dep = b.lazyDependency("spirv_tools", .{});
+        const maybe_spirv_headers_dep = b.lazyDependency("spirv_headers", .{});
+
+        const glslang_dep = maybe_glslang_dep orelse return;
+        _ = glslang_dep;
+        const spirv_tools_dep = maybe_spirv_tools_dep orelse return;
+        _ = spirv_tools_dep;
+        const spirv_headers_dep = maybe_spirv_headers_dep orelse return;
+        _ = spirv_headers_dep;
+
+        // # Set up tests, using only the simplest modes of the test_shaders
+        // # script.  You have to invoke the script manually to:
+        // #  - Update the reference files
+        // #  - Get cycle counts from malisc
+        // #  - Keep failing outputs
+        // if (${CMAKE_VERSION} VERSION_GREATER "3.12")
+        //     find_package(Python3)
+        //     if (${PYTHON3_FOUND})
+        //         set(PYTHONINTERP_FOUND ON)
+        //         set(PYTHON_VERSION_MAJOR 3)
+        //         set(PYTHON_EXECUTABLE ${Python3_EXECUTABLE})
         //     else()
-        //         find_package(PythonInterp)
+        //         set(PYTHONINTERP_FOUND OFF)
         //     endif()
+        // else()
+        //     find_package(PythonInterp)
+        // endif()
 
-        //     find_program(spirv-cross-glslang NAMES glslangValidator
-        //             PATHS ${CMAKE_CURRENT_SOURCE_DIR}/external/glslang-build/output/bin
-        //             NO_DEFAULT_PATH)
-        //     find_program(spirv-cross-spirv-as NAMES spirv-as
-        //             PATHS ${CMAKE_CURRENT_SOURCE_DIR}/external/spirv-tools-build/output/bin
-        //             NO_DEFAULT_PATH)
-        //     find_program(spirv-cross-spirv-val NAMES spirv-val
-        //             PATHS ${CMAKE_CURRENT_SOURCE_DIR}/external/spirv-tools-build/output/bin
-        //             NO_DEFAULT_PATH)
-        //     find_program(spirv-cross-spirv-opt NAMES spirv-opt
-        //             PATHS ${CMAKE_CURRENT_SOURCE_DIR}/external/spirv-tools-build/output/bin
-        //             NO_DEFAULT_PATH)
+        // find_program(spirv-cross-glslang NAMES glslangValidator
+        //         PATHS ${CMAKE_CURRENT_SOURCE_DIR}/external/glslang-build/output/bin
+        //         NO_DEFAULT_PATH)
+        // find_program(spirv-cross-spirv-as NAMES spirv-as
+        //         PATHS ${CMAKE_CURRENT_SOURCE_DIR}/external/spirv-tools-build/output/bin
+        //         NO_DEFAULT_PATH)
+        // find_program(spirv-cross-spirv-val NAMES spirv-val
+        //         PATHS ${CMAKE_CURRENT_SOURCE_DIR}/external/spirv-tools-build/output/bin
+        //         NO_DEFAULT_PATH)
+        // find_program(spirv-cross-spirv-opt NAMES spirv-opt
+        //         PATHS ${CMAKE_CURRENT_SOURCE_DIR}/external/spirv-tools-build/output/bin
+        //         NO_DEFAULT_PATH)
 
-        //     if ((${spirv-cross-glslang} MATCHES "NOTFOUND") OR (${spirv-cross-spirv-as} MATCHES "NOTFOUND") OR (${spirv-cross-spirv-val} MATCHES "NOTFOUND") OR (${spirv-cross-spirv-opt} MATCHES "NOTFOUND"))
-        //         set(SPIRV_CROSS_ENABLE_TESTS OFF)
-        //         message("SPIRV-Cross:  Testing will be disabled for SPIRV-Cross. Could not find glslang or SPIRV-Tools build under external/. To enable testing, run ./checkout_glslang_spirv_tools.sh and ./build_glslang_spirv_tools.sh first.")
-        //     else()
-        //         set(SPIRV_CROSS_ENABLE_TESTS ON)
-        //         message("SPIRV-Cross: Found glslang and SPIRV-Tools. Enabling test suite.")
-        //         message("SPIRV-Cross: Found glslangValidator in: ${spirv-cross-glslang}.")
-        //         message("SPIRV-Cross: Found spirv-as in: ${spirv-cross-spirv-as}.")
-        //         message("SPIRV-Cross: Found spirv-val in: ${spirv-cross-spirv-val}.")
-        //         message("SPIRV-Cross: Found spirv-opt in: ${spirv-cross-spirv-opt}.")
-        //     endif()
+        // if ((${spirv-cross-glslang} MATCHES "NOTFOUND") OR (${spirv-cross-spirv-as} MATCHES "NOTFOUND") OR (${spirv-cross-spirv-val} MATCHES "NOTFOUND") OR (${spirv-cross-spirv-opt} MATCHES "NOTFOUND"))
+        //     set(SPIRV_CROSS_ENABLE_TESTS OFF)
+        //     message("SPIRV-Cross:  Testing will be disabled for SPIRV-Cross. Could not find glslang or SPIRV-Tools build under external/. To enable testing, run ./checkout_glslang_spirv_tools.sh and ./build_glslang_spirv_tools.sh first.")
+        // else()
+        //     set(SPIRV_CROSS_ENABLE_TESTS ON)
+        //     message("SPIRV-Cross: Found glslang and SPIRV-Tools. Enabling test suite.")
+        //     message("SPIRV-Cross: Found glslangValidator in: ${spirv-cross-glslang}.")
+        //     message("SPIRV-Cross: Found spirv-as in: ${spirv-cross-spirv-as}.")
+        //     message("SPIRV-Cross: Found spirv-val in: ${spirv-cross-spirv-val}.")
+        //     message("SPIRV-Cross: Found spirv-opt in: ${spirv-cross-spirv-opt}.")
+        // endif()
 
-        //     set(spirv-cross-externals
-        //             --glslang "${spirv-cross-glslang}"
-        //             --spirv-as "${spirv-cross-spirv-as}"
-        //             --spirv-opt "${spirv-cross-spirv-opt}"
-        //             --spirv-val "${spirv-cross-spirv-val}")
+        // set(spirv-cross-externals
+        //         --glslang "${spirv-cross-glslang}"
+        //         --spirv-as "${spirv-cross-spirv-as}"
+        //         --spirv-opt "${spirv-cross-spirv-opt}"
+        //         --spirv-val "${spirv-cross-spirv-val}")
 
-        //     if (${PYTHONINTERP_FOUND} AND SPIRV_CROSS_ENABLE_TESTS)
-        //         if (${PYTHON_VERSION_MAJOR} GREATER 2)
-        //             add_executable(spirv-cross-c-api-test tests-other/c_api_test.c)
-        //             target_link_libraries(spirv-cross-c-api-test spirv-cross-c)
-        //             set_target_properties(spirv-cross-c-api-test PROPERTIES LINK_FLAGS "${spirv-cross-link-flags}")
+        // if (${PYTHONINTERP_FOUND} AND SPIRV_CROSS_ENABLE_TESTS)
+        //     if (${PYTHON_VERSION_MAJOR} GREATER 2)
+        //         add_executable(spirv-cross-c-api-test tests-other/c_api_test.c)
+        //         target_link_libraries(spirv-cross-c-api-test spirv-cross-c)
+        //         set_target_properties(spirv-cross-c-api-test PROPERTIES LINK_FLAGS "${spirv-cross-link-flags}")
 
-        //             add_executable(spirv-cross-small-vector-test tests-other/small_vector.cpp)
-        //             target_link_libraries(spirv-cross-small-vector-test spirv-cross-core)
-        //             set_target_properties(spirv-cross-small-vector-test PROPERTIES LINK_FLAGS "${spirv-cross-link-flags}")
+        //         add_executable(spirv-cross-small-vector-test tests-other/small_vector.cpp)
+        //         target_link_libraries(spirv-cross-small-vector-test spirv-cross-core)
+        //         set_target_properties(spirv-cross-small-vector-test PROPERTIES LINK_FLAGS "${spirv-cross-link-flags}")
 
-        //             add_executable(spirv-cross-msl-constexpr-test tests-other/msl_constexpr_test.cpp)
-        //             target_link_libraries(spirv-cross-msl-constexpr-test spirv-cross-c)
-        //             set_target_properties(spirv-cross-msl-constexpr-test PROPERTIES LINK_FLAGS "${spirv-cross-link-flags}")
+        //         add_executable(spirv-cross-msl-constexpr-test tests-other/msl_constexpr_test.cpp)
+        //         target_link_libraries(spirv-cross-msl-constexpr-test spirv-cross-c)
+        //         set_target_properties(spirv-cross-msl-constexpr-test PROPERTIES LINK_FLAGS "${spirv-cross-link-flags}")
 
-        //             add_executable(spirv-cross-msl-resource-binding-test tests-other/msl_resource_bindings.cpp)
-        //             target_link_libraries(spirv-cross-msl-resource-binding-test spirv-cross-c)
-        //             set_target_properties(spirv-cross-msl-resource-binding-test PROPERTIES LINK_FLAGS "${spirv-cross-link-flags}")
+        //         add_executable(spirv-cross-msl-resource-binding-test tests-other/msl_resource_bindings.cpp)
+        //         target_link_libraries(spirv-cross-msl-resource-binding-test spirv-cross-c)
+        //         set_target_properties(spirv-cross-msl-resource-binding-test PROPERTIES LINK_FLAGS "${spirv-cross-link-flags}")
 
-        //             add_executable(spirv-cross-hlsl-resource-binding-test tests-other/hlsl_resource_bindings.cpp)
-        //             target_link_libraries(spirv-cross-hlsl-resource-binding-test spirv-cross-c)
-        //             set_target_properties(spirv-cross-hlsl-resource-binding-test PROPERTIES LINK_FLAGS "${spirv-cross-link-flags}")
+        //         add_executable(spirv-cross-hlsl-resource-binding-test tests-other/hlsl_resource_bindings.cpp)
+        //         target_link_libraries(spirv-cross-hlsl-resource-binding-test spirv-cross-c)
+        //         set_target_properties(spirv-cross-hlsl-resource-binding-test PROPERTIES LINK_FLAGS "${spirv-cross-link-flags}")
 
-        //             add_executable(spirv-cross-msl-ycbcr-conversion-test tests-other/msl_ycbcr_conversion_test.cpp)
-        //             target_link_libraries(spirv-cross-msl-ycbcr-conversion-test spirv-cross-c)
-        //             set_target_properties(spirv-cross-msl-ycbcr-conversion-test PROPERTIES LINK_FLAGS "${spirv-cross-link-flags}")
+        //         add_executable(spirv-cross-msl-ycbcr-conversion-test tests-other/msl_ycbcr_conversion_test.cpp)
+        //         target_link_libraries(spirv-cross-msl-ycbcr-conversion-test spirv-cross-c)
+        //         set_target_properties(spirv-cross-msl-ycbcr-conversion-test PROPERTIES LINK_FLAGS "${spirv-cross-link-flags}")
 
-        //             add_executable(spirv-cross-typed-id-test tests-other/typed_id_test.cpp)
-        //             target_link_libraries(spirv-cross-typed-id-test spirv-cross-core)
-        //             set_target_properties(spirv-cross-typed-id-test PROPERTIES LINK_FLAGS "${spirv-cross-link-flags}")
+        //         add_executable(spirv-cross-typed-id-test tests-other/typed_id_test.cpp)
+        //         target_link_libraries(spirv-cross-typed-id-test spirv-cross-core)
+        //         set_target_properties(spirv-cross-typed-id-test PROPERTIES LINK_FLAGS "${spirv-cross-link-flags}")
 
-        //             if (CMAKE_COMPILER_IS_GNUCXX OR (${CMAKE_CXX_COMPILER_ID} MATCHES "Clang"))
-        //                 target_compile_options(spirv-cross-c-api-test PRIVATE -std=c89 -Wall -Wextra)
-        //             endif()
-        //             add_test(NAME spirv-cross-c-api-test
-        //                     COMMAND $<TARGET_FILE:spirv-cross-c-api-test> ${CMAKE_CURRENT_SOURCE_DIR}/tests-other/c_api_test.spv
-        //                     ${spirv-cross-abi-major}
-        //                     ${spirv-cross-abi-minor}
-        //                     ${spirv-cross-abi-patch})
-        //             add_test(NAME spirv-cross-small-vector-test
-        //                     COMMAND $<TARGET_FILE:spirv-cross-small-vector-test>)
-        //             add_test(NAME spirv-cross-msl-constexpr-test
-        //                     COMMAND $<TARGET_FILE:spirv-cross-msl-constexpr-test> ${CMAKE_CURRENT_SOURCE_DIR}/tests-other/msl_constexpr_test.spv)
-        //             add_test(NAME spirv-cross-msl-resource-binding-test
-        //                     COMMAND $<TARGET_FILE:spirv-cross-msl-resource-binding-test> ${CMAKE_CURRENT_SOURCE_DIR}/tests-other/msl_resource_binding.spv)
-        //             add_test(NAME spirv-cross-hlsl-resource-binding-test
-        //                     COMMAND $<TARGET_FILE:spirv-cross-hlsl-resource-binding-test> ${CMAKE_CURRENT_SOURCE_DIR}/tests-other/hlsl_resource_binding.spv)
-        //             add_test(NAME spirv-cross-msl-ycbcr-conversion-test
-        //                     COMMAND $<TARGET_FILE:spirv-cross-msl-ycbcr-conversion-test> ${CMAKE_CURRENT_SOURCE_DIR}/tests-other/msl_ycbcr_conversion_test.spv)
-        //             add_test(NAME spirv-cross-msl-ycbcr-conversion-test-2
-        //                     COMMAND $<TARGET_FILE:spirv-cross-msl-ycbcr-conversion-test> ${CMAKE_CURRENT_SOURCE_DIR}/tests-other/msl_ycbcr_conversion_test_2.spv)
-        //             add_test(NAME spirv-cross-typed-id-test
-        //                     COMMAND $<TARGET_FILE:spirv-cross-typed-id-test>)
-        //             add_test(NAME spirv-cross-test
-        //                     COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_shaders.py --parallel
-        //                     ${spirv-cross-externals}
-        //                     ${CMAKE_CURRENT_SOURCE_DIR}/shaders
-        //                     WORKING_DIRECTORY $<TARGET_FILE_DIR:spirv-cross>)
-        //             add_test(NAME spirv-cross-test-no-opt
-        //                     COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_shaders.py --parallel
-        //                     ${spirv-cross-externals}
-        //                     ${CMAKE_CURRENT_SOURCE_DIR}/shaders-no-opt
-        //                     WORKING_DIRECTORY $<TARGET_FILE_DIR:spirv-cross>)
-        //             add_test(NAME spirv-cross-test-metal
-        //                     COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_shaders.py --metal --parallel
-        //                     ${spirv-cross-externals}
-        //                     ${CMAKE_CURRENT_SOURCE_DIR}/shaders-msl
-        //                     WORKING_DIRECTORY $<TARGET_FILE_DIR:spirv-cross>)
-        //             add_test(NAME spirv-cross-test-metal-no-opt
-        //                     COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_shaders.py --metal --parallel
-        //                     ${spirv-cross-externals}
-        //                     ${CMAKE_CURRENT_SOURCE_DIR}/shaders-msl-no-opt
-        //                     WORKING_DIRECTORY $<TARGET_FILE_DIR:spirv-cross>)
-        //             add_test(NAME spirv-cross-test-hlsl
-        //                     COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_shaders.py --hlsl --parallel
-        //                     ${spirv-cross-externals}
-        //                     ${CMAKE_CURRENT_SOURCE_DIR}/shaders-hlsl
-        //                     WORKING_DIRECTORY $<TARGET_FILE_DIR:spirv-cross>)
-        //             add_test(NAME spirv-cross-test-hlsl-no-opt
-        //                     COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_shaders.py --hlsl --parallel
-        //                     ${spirv-cross-externals}
-        //                     ${CMAKE_CURRENT_SOURCE_DIR}/shaders-hlsl-no-opt
-        //                     WORKING_DIRECTORY $<TARGET_FILE_DIR:spirv-cross>)
-        //             add_test(NAME spirv-cross-test-opt
-        //                     COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_shaders.py --opt --parallel
-        //                     ${spirv-cross-externals}
-        //                     ${CMAKE_CURRENT_SOURCE_DIR}/shaders
-        //                     WORKING_DIRECTORY $<TARGET_FILE_DIR:spirv-cross>)
-        //             add_test(NAME spirv-cross-test-metal-opt
-        //                     COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_shaders.py --metal --opt --parallel
-        //                     ${spirv-cross-externals}
-        //                     ${CMAKE_CURRENT_SOURCE_DIR}/shaders-msl
-        //                     WORKING_DIRECTORY $<TARGET_FILE_DIR:spirv-cross>)
-        //             add_test(NAME spirv-cross-test-hlsl-opt
-        //                     COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_shaders.py --hlsl --opt --parallel
-        //                     ${spirv-cross-externals}
-        //                     ${CMAKE_CURRENT_SOURCE_DIR}/shaders-hlsl
-        //                     WORKING_DIRECTORY $<TARGET_FILE_DIR:spirv-cross>)
-        //             add_test(NAME spirv-cross-test-reflection
-        //                     COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_shaders.py --reflect --parallel
-        //                     ${spirv-cross-externals}
-        //                     ${CMAKE_CURRENT_SOURCE_DIR}/shaders-reflection
-        //                     WORKING_DIRECTORY $<TARGET_FILE_DIR:spirv-cross>)
-        //             add_test(NAME spirv-cross-test-ue4
-        //                     COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_shaders.py --msl --parallel
-        //                     ${spirv-cross-externals}
-        //                     ${CMAKE_CURRENT_SOURCE_DIR}/shaders-ue4
-        //                     WORKING_DIRECTORY $<TARGET_FILE_DIR:spirv-cross>)
-        //             add_test(NAME spirv-cross-test-ue4-opt
-        //                     COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_shaders.py --msl --opt --parallel
-        //                     ${spirv-cross-externals}
-        //                     ${CMAKE_CURRENT_SOURCE_DIR}/shaders-ue4
-        //                     WORKING_DIRECTORY $<TARGET_FILE_DIR:spirv-cross>)
-        //             add_test(NAME spirv-cross-test-ue4-no-opt
-        //                     COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_shaders.py --msl --parallel
-        //                     ${spirv-cross-externals}
-        //                     ${CMAKE_CURRENT_SOURCE_DIR}/shaders-ue4-no-opt
-        //                     WORKING_DIRECTORY $<TARGET_FILE_DIR:spirv-cross>)
+        //         if (CMAKE_COMPILER_IS_GNUCXX OR (${CMAKE_CXX_COMPILER_ID} MATCHES "Clang"))
+        //             target_compile_options(spirv-cross-c-api-test PRIVATE -std=c89 -Wall -Wextra)
         //         endif()
-        //     elseif(NOT ${PYTHONINTERP_FOUND})
-        //         message(WARNING "SPIRV-Cross: Testing disabled. Could not find python3. If you have python3 installed try running "
-        //                 "cmake with -DPYTHON_EXECUTABLE:FILEPATH=/path/to/python3 to help it find the executable")
+        //         add_test(NAME spirv-cross-c-api-test
+        //                 COMMAND $<TARGET_FILE:spirv-cross-c-api-test> ${CMAKE_CURRENT_SOURCE_DIR}/tests-other/c_api_test.spv
+        //                 ${spirv-cross-abi-major}
+        //                 ${spirv-cross-abi-minor}
+        //                 ${spirv-cross-abi-patch})
+        //         add_test(NAME spirv-cross-small-vector-test
+        //                 COMMAND $<TARGET_FILE:spirv-cross-small-vector-test>)
+        //         add_test(NAME spirv-cross-msl-constexpr-test
+        //                 COMMAND $<TARGET_FILE:spirv-cross-msl-constexpr-test> ${CMAKE_CURRENT_SOURCE_DIR}/tests-other/msl_constexpr_test.spv)
+        //         add_test(NAME spirv-cross-msl-resource-binding-test
+        //                 COMMAND $<TARGET_FILE:spirv-cross-msl-resource-binding-test> ${CMAKE_CURRENT_SOURCE_DIR}/tests-other/msl_resource_binding.spv)
+        //         add_test(NAME spirv-cross-hlsl-resource-binding-test
+        //                 COMMAND $<TARGET_FILE:spirv-cross-hlsl-resource-binding-test> ${CMAKE_CURRENT_SOURCE_DIR}/tests-other/hlsl_resource_binding.spv)
+        //         add_test(NAME spirv-cross-msl-ycbcr-conversion-test
+        //                 COMMAND $<TARGET_FILE:spirv-cross-msl-ycbcr-conversion-test> ${CMAKE_CURRENT_SOURCE_DIR}/tests-other/msl_ycbcr_conversion_test.spv)
+        //         add_test(NAME spirv-cross-msl-ycbcr-conversion-test-2
+        //                 COMMAND $<TARGET_FILE:spirv-cross-msl-ycbcr-conversion-test> ${CMAKE_CURRENT_SOURCE_DIR}/tests-other/msl_ycbcr_conversion_test_2.spv)
+        //         add_test(NAME spirv-cross-typed-id-test
+        //                 COMMAND $<TARGET_FILE:spirv-cross-typed-id-test>)
+        //         add_test(NAME spirv-cross-test
+        //                 COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_shaders.py --parallel
+        //                 ${spirv-cross-externals}
+        //                 ${CMAKE_CURRENT_SOURCE_DIR}/shaders
+        //                 WORKING_DIRECTORY $<TARGET_FILE_DIR:spirv-cross>)
+        //         add_test(NAME spirv-cross-test-no-opt
+        //                 COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_shaders.py --parallel
+        //                 ${spirv-cross-externals}
+        //                 ${CMAKE_CURRENT_SOURCE_DIR}/shaders-no-opt
+        //                 WORKING_DIRECTORY $<TARGET_FILE_DIR:spirv-cross>)
+        //         add_test(NAME spirv-cross-test-metal
+        //                 COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_shaders.py --metal --parallel
+        //                 ${spirv-cross-externals}
+        //                 ${CMAKE_CURRENT_SOURCE_DIR}/shaders-msl
+        //                 WORKING_DIRECTORY $<TARGET_FILE_DIR:spirv-cross>)
+        //         add_test(NAME spirv-cross-test-metal-no-opt
+        //                 COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_shaders.py --metal --parallel
+        //                 ${spirv-cross-externals}
+        //                 ${CMAKE_CURRENT_SOURCE_DIR}/shaders-msl-no-opt
+        //                 WORKING_DIRECTORY $<TARGET_FILE_DIR:spirv-cross>)
+        //         add_test(NAME spirv-cross-test-hlsl
+        //                 COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_shaders.py --hlsl --parallel
+        //                 ${spirv-cross-externals}
+        //                 ${CMAKE_CURRENT_SOURCE_DIR}/shaders-hlsl
+        //                 WORKING_DIRECTORY $<TARGET_FILE_DIR:spirv-cross>)
+        //         add_test(NAME spirv-cross-test-hlsl-no-opt
+        //                 COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_shaders.py --hlsl --parallel
+        //                 ${spirv-cross-externals}
+        //                 ${CMAKE_CURRENT_SOURCE_DIR}/shaders-hlsl-no-opt
+        //                 WORKING_DIRECTORY $<TARGET_FILE_DIR:spirv-cross>)
+        //         add_test(NAME spirv-cross-test-opt
+        //                 COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_shaders.py --opt --parallel
+        //                 ${spirv-cross-externals}
+        //                 ${CMAKE_CURRENT_SOURCE_DIR}/shaders
+        //                 WORKING_DIRECTORY $<TARGET_FILE_DIR:spirv-cross>)
+        //         add_test(NAME spirv-cross-test-metal-opt
+        //                 COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_shaders.py --metal --opt --parallel
+        //                 ${spirv-cross-externals}
+        //                 ${CMAKE_CURRENT_SOURCE_DIR}/shaders-msl
+        //                 WORKING_DIRECTORY $<TARGET_FILE_DIR:spirv-cross>)
+        //         add_test(NAME spirv-cross-test-hlsl-opt
+        //                 COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_shaders.py --hlsl --opt --parallel
+        //                 ${spirv-cross-externals}
+        //                 ${CMAKE_CURRENT_SOURCE_DIR}/shaders-hlsl
+        //                 WORKING_DIRECTORY $<TARGET_FILE_DIR:spirv-cross>)
+        //         add_test(NAME spirv-cross-test-reflection
+        //                 COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_shaders.py --reflect --parallel
+        //                 ${spirv-cross-externals}
+        //                 ${CMAKE_CURRENT_SOURCE_DIR}/shaders-reflection
+        //                 WORKING_DIRECTORY $<TARGET_FILE_DIR:spirv-cross>)
+        //         add_test(NAME spirv-cross-test-ue4
+        //                 COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_shaders.py --msl --parallel
+        //                 ${spirv-cross-externals}
+        //                 ${CMAKE_CURRENT_SOURCE_DIR}/shaders-ue4
+        //                 WORKING_DIRECTORY $<TARGET_FILE_DIR:spirv-cross>)
+        //         add_test(NAME spirv-cross-test-ue4-opt
+        //                 COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_shaders.py --msl --opt --parallel
+        //                 ${spirv-cross-externals}
+        //                 ${CMAKE_CURRENT_SOURCE_DIR}/shaders-ue4
+        //                 WORKING_DIRECTORY $<TARGET_FILE_DIR:spirv-cross>)
+        //         add_test(NAME spirv-cross-test-ue4-no-opt
+        //                 COMMAND ${PYTHON_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_shaders.py --msl --parallel
+        //                 ${spirv-cross-externals}
+        //                 ${CMAKE_CURRENT_SOURCE_DIR}/shaders-ue4-no-opt
+        //                 WORKING_DIRECTORY $<TARGET_FILE_DIR:spirv-cross>)
         //     endif()
+        // elseif(NOT ${PYTHONINTERP_FOUND})
+        //     message(WARNING "SPIRV-Cross: Testing disabled. Could not find python3. If you have python3 installed try running "
+        //             "cmake with -DPYTHON_EXECUTABLE:FILEPATH=/path/to/python3 to help it find the executable")
         // endif()
     }
 }

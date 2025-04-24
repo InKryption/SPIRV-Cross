@@ -15,5 +15,21 @@
         "LICENSE",
         "LICENSES/",
     },
-    .dependencies = .{},
+    .dependencies = .{
+        .glslang = .{
+            .lazy = true,
+            .url = "git+https://github.com/KhronosGroup/glslang.git#84581c2f9ec4c57775eef9794bc243b1a07c6e5f",
+            .hash = "N-V-__8AAD-hbgI0lVJRS8nBsbGQFaPKRuBL1CgRd6OLFCrE",
+        },
+        .spirv_tools = .{
+            .lazy = true,
+            .url = "git+https://github.com/KhronosGroup/SPIRV-Tools.git#2550869855fcef23a96f67e8a9af9571c8fa1ac7",
+            .hash = "N-V-__8AAFwrbwFeOZJn-Gy3L-SNmvbL55pT3XXzULyz7F83",
+        },
+        .spirv_headers = .{
+            .lazy = true,
+            .url = "git+https://github.com/KhronosGroup/SPIRV-Headers.git#7c2f5333e9c662620581361dffc327a99800bb52",
+            .hash = "N-V-__8AAFJIOgDx1gJOlVCgeLEWJ4qsrK0DR2iE4CCjcRm8",
+        },
+    },
 }
