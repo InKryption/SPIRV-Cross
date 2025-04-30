@@ -34,14 +34,23 @@ pub const Options = struct {
     force_pic: bool,
 
     pub fn fromBuild(b: *Build) Options {
+        const is_root = b.pkg_hash.len == 0;
+
         const target = b.standardTargetOptions(.{});
         const optimize = b.standardOptimizeOption(.{});
-        const skip_install = b.option(bool, "skip_install", "Skips installation targets.") orelse false;
 
-        const want_all_features = if (b.pkg_hash.len == 0)
-            b.option(bool, "want_all", "Enable GLSL, HLSL, MSL, C++, and reflection support for the shared library.") orelse false
-        else
-            false;
+        const skip_install = if (is_root) b.option(
+            bool,
+            "skip_install",
+            "Skips installation targets.",
+        ) orelse false else false;
+
+        const want_all_features = if (is_root) b.option(
+            bool,
+            "want_all",
+            "Enable GLSL, HLSL, MSL, C++, and reflection support for the library (shared and/or static).",
+        ) orelse false else false;
+
         return .{
             .target = target,
             .optimize = optimize,
@@ -54,7 +63,7 @@ pub const Options = struct {
             .want_reflect = b.option(bool, "want_reflect", "Enable JSON reflection target support for the shared library.") orelse want_all_features,
 
             .exceptions_to_assertions = b.option(bool, "exceptions_to_assertions", "Instead of throwing exceptions assert") orelse false,
-            .enable_tests = b.option(bool, "enable_tests", "Enable SPIRV-Cross tests.") orelse false,
+            .enable_tests = if (is_root) b.option(bool, "enable_tests", "Enable SPIRV-Cross tests.") orelse false else false,
 
             .sanitize_address = b.option(bool, "sanitize_address", "Sanitize address") orelse false,
             .sanitize_memory = b.option(bool, "sanitize_memory", "Sanitize memory") orelse false,
