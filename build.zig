@@ -2,7 +2,6 @@ const std = @import("std");
 const Build = std.Build;
 
 const build_manifest = @import("build.zig.zon");
-pub const build_version = std.SemanticVersion.parse(build_manifest.version) catch unreachable;
 pub const abi_version = std.SemanticVersion.parse("0.65.0") catch unreachable;
 
 pub const Options = struct {
@@ -10,6 +9,8 @@ pub const Options = struct {
     optimize: std.builtin.OptimizeMode,
 
     skip_install: bool,
+
+    source_date_epoch: ?u64,
 
     want_glsl: bool,
     want_hlsl: bool,
@@ -45,6 +46,28 @@ pub const Options = struct {
             "Skips installation targets.",
         ) orelse false else false;
 
+        const source_date_epoch: ?u64 = blk: {
+            // SEE: https://cmake.org/cmake/help/latest/command/string.html#timestamp
+            // SEE: https://reproducible-builds.org/specs/source-date-epoch
+
+            const SOURCE_DATE_EPOCH = "SOURCE_DATE_EPOCH";
+            const source_date_epoch_desc =
+                \\Should be an integer representing a timestamp, relative to Jan 1, 1970 at 12:00 AM.
+                \\Used for the git version string's timestamp component.
+                \\Overrides the SOURCE_DATE_EPOCH environment value.
+                \\Defaults to an "unknown" timestamp.
+            ;
+            if (b.option(u64, SOURCE_DATE_EPOCH, source_date_epoch_desc)) |source_date_epoch|
+                break :blk source_date_epoch;
+            if (b.graph.env_map.get(SOURCE_DATE_EPOCH)) |source_date_epoch| {
+                break :blk std.fmt.parseInt(u64, source_date_epoch, 10) catch std.debug.panic(
+                    "Failed to parse environment variable SOURCE_DATE_EPOCH='{s}' as a base 10 integer",
+                    .{source_date_epoch},
+                );
+            }
+            break :blk null;
+        };
+
         const want_all_features = if (is_root) b.option(
             bool,
             "want_all",
@@ -54,7 +77,10 @@ pub const Options = struct {
         return .{
             .target = target,
             .optimize = optimize,
+
             .skip_install = skip_install,
+
+            .source_date_epoch = source_date_epoch,
 
             .want_glsl = b.option(bool, "want_glsl", "Enable GLSL support for the shared library.") orelse want_all_features,
             .want_hlsl = b.option(bool, "want_hlsl", "Enable HLSL target support for the shared library.") orelse want_all_features,
@@ -125,46 +151,31 @@ pub fn build(b: *Build) void {
         }));
 
     const gitversion_h_helper = struct {
-        fn addIncludeTo(mod: *Build.Module, gitversion_h: Build.LazyPath) void {
+        fn addIncludeTo(artifact: *Build.Step.Compile, gitversion_h: *Build.Step.ConfigHeader) void {
             const HAVE_SPIRV_CROSS_GIT_VERSION = "HAVE_SPIRV_CROSS_GIT_VERSION";
-            mod.addIncludePath(gitversion_h.dirname());
-            mod.addCMacro(HAVE_SPIRV_CROSS_GIT_VERSION, "");
+            artifact.addConfigHeader(gitversion_h);
+            artifact.root_module.addCMacro(HAVE_SPIRV_CROSS_GIT_VERSION, "");
+            artifact.step.dependOn(&gitversion_h.step);
         }
     };
-
-    const gitversion_h: Build.LazyPath = gen: {
-        const gen_gitversion_h_exe = b.addExecutable(.{
-            .name = "gen-gitversion-h",
-            .root_module = b.createModule(.{
-                .root_source_file = b.path("scripts/gen_gitversion_h.zig"), // NOTE: see the script for explanation
-                .target = b.resolveTargetQuery(.{}),
-                .optimize = .ReleaseSafe,
-            }),
-        });
-
-        const gen_gitversion_h_run = b.addRunArtifact(gen_gitversion_h_exe);
-        const gitversion_h = gen_gitversion_h_run.addOutputFileArg("gitversion.h");
-        gen_gitversion_h_run.addFileArg(b.path("cmake/gitversion.in.h"));
-        gen_gitversion_h_run.addArg(b.fmt("{}", .{build_version}));
-
-        const SOURCE_DATE_EPOCH = "SOURCE_DATE_EPOCH";
-        if (b.graph.env_map.get(SOURCE_DATE_EPOCH)) |source_date_epoch| {
-            gen_gitversion_h_run.setEnvironmentVariable(
-                SOURCE_DATE_EPOCH,
-                source_date_epoch,
-            );
-        }
-
-        // dependencies to re-run gen-gitversion-h for
-        const srcdir = b.path("src");
-        for (all_sources.values) |source_list| {
-            for (source_list) |file| {
-                const file_lp = srcdir.path(b, file);
-                gen_gitversion_h_run.addFileInput(file_lp);
-            }
-        }
-        gen_gitversion_h_run.addFileInput(b.path("build.zig"));
-
+    const gitversion_h: *Build.Step.ConfigHeader = gen: {
+        const gitversion_h = b.addConfigHeader(.{
+            .style = .{ .cmake = b.path("cmake/gitversion.in.h") },
+            .include_path = "gitversion.h",
+        }, .{});
+        gitversion_h.addValue(
+            "spirv-cross-timestamp",
+            []const u8,
+            if (opts.source_date_epoch) |ts| b.fmt("{}", .{dateFmt(ts)}) else "unknown",
+        );
+        // TODO: add support for getting the commit somehow?
+        // probably will involve enhancing `Build.Step.ConfigHeader` to be able to have values
+        // generated by run steps, ie a hypothetical `gitversion_h.addValueEmbedFile(@as(Build.LazyPath, ...))`.
+        gitversion_h.addValue(
+            "spirv-cross-build-version",
+            []const u8,
+            "unknown",
+        );
         break :gen gitversion_h;
     };
 
@@ -298,7 +309,7 @@ pub fn build(b: *Build) void {
 
     const c_static_lib = spvcAddLibraryStatic(b, .c, opts, cxx_flags, cxx_defines);
     installArtifactWithStep(b, opts.skip_install, c_static_lib, c_static_step);
-    gitversion_h_helper.addIncludeTo(c_static_lib.root_module, gitversion_h);
+    gitversion_h_helper.addIncludeTo(c_static_lib, gitversion_h);
     LibraryName.Feature.defineMacroSetFor(lib_needed_feature_apis, c_static_lib.root_module);
     { // link wanted/needed libraries
         var feature_iter = lib_needed_feature_apis.iterator();
@@ -324,7 +335,7 @@ pub fn build(b: *Build) void {
     compileSpvcSources(b, c_shared_lib, c_shared_lib_source_groups, cxx_flags);
     addCMacros(c_shared_lib.root_module, cxx_defines);
     spvcDefineNamespaceOverride(c_shared_lib.root_module, opts.namespace_override);
-    gitversion_h_helper.addIncludeTo(c_shared_lib.root_module, gitversion_h);
+    gitversion_h_helper.addIncludeTo(c_shared_lib, gitversion_h);
     c_shared_lib.root_module.addCMacro("SPVC_EXPORT_SYMBOLS", "");
     LibraryName.Feature.defineMacroSetFor(lib_needed_feature_apis, c_shared_lib.root_module);
     // logic details from the original CMakeLists.txt file
@@ -353,7 +364,7 @@ pub fn build(b: *Build) void {
     });
     installArtifactWithStep(b, opts.skip_install, cli_exe, cli_step);
     addCMacros(cli_exe.root_module, cxx_defines);
-    gitversion_h_helper.addIncludeTo(cli_exe.root_module, gitversion_h);
+    gitversion_h_helper.addIncludeTo(cli_exe, gitversion_h);
     _ = spirv_cross_link_flags; // TODO: goto def; apply to main_exe.
     cli_exe.linkLibrary(core_lib);
     cli_exe.linkLibrary(glsl_lib);
@@ -844,3 +855,35 @@ fn spvcDefineNamespaceOverride(
         namespace_override,
     );
 }
+
+fn dateFmt(secs: u64) DateFmt {
+    return .{ .secs = secs };
+}
+const DateFmt = struct {
+    /// seconds since epoch Jan 1, 1970 at 12:00 AM
+    secs: u64,
+
+    pub fn format(
+        self: DateFmt,
+        comptime fmt_str: []const u8,
+        fmt_options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) @TypeOf(writer).Error!void {
+        _ = fmt_str;
+        _ = fmt_options;
+
+        const epoch_seconds: std.time.epoch.EpochSeconds = .{ .secs = self.secs };
+        const year_day = epoch_seconds.getEpochDay().calculateYearDay();
+        const month_day = year_day.calculateMonthDay();
+        const day_seconds = epoch_seconds.getDaySeconds();
+        try writer.print("{[y]}-{[m]:0>2}-{[d]:0>2}T{[h]:0>2}:{[min]:0>2}:{[s]:0>2}Z", .{
+            .y = year_day.year,
+            .m = month_day.month.numeric(),
+            .d = month_day.day_index,
+
+            .h = day_seconds.getHoursIntoDay(),
+            .min = day_seconds.getMinutesIntoHour(),
+            .s = day_seconds.getSecondsIntoMinute(),
+        });
+    }
+};
