@@ -166,7 +166,7 @@ pub fn build(b: *Build) void {
         gitversion_h.addValue(
             "spirv-cross-timestamp",
             []const u8,
-            if (opts.source_date_epoch) |ts| b.fmt("{}", .{dateFmt(ts)}) else "unknown",
+            if (opts.source_date_epoch) |ts| b.fmt("{f}", .{dateFmt(ts)}) else "unknown",
         );
         // TODO: add support for getting the commit somehow?
         // probably will involve enhancing `Build.Step.ConfigHeader` to be able to have values
@@ -863,15 +863,7 @@ const DateFmt = struct {
     /// seconds since epoch Jan 1, 1970 at 12:00 AM
     secs: u64,
 
-    pub fn format(
-        self: DateFmt,
-        comptime fmt_str: []const u8,
-        fmt_options: std.fmt.FormatOptions,
-        writer: anytype,
-    ) @TypeOf(writer).Error!void {
-        _ = fmt_str;
-        _ = fmt_options;
-
+    pub fn format(self: DateFmt, writer: *std.Io.Writer) std.Io.Writer.Error!void {
         const epoch_seconds: std.time.epoch.EpochSeconds = .{ .secs = self.secs };
         const year_day = epoch_seconds.getEpochDay().calculateYearDay();
         const month_day = year_day.calculateMonthDay();
